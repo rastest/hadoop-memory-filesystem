@@ -37,12 +37,18 @@ import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.util.Progressable;
 
-
 /**
  * An in-memory implementation of a {@link FileSystem}. This class was written
- * to support testing of code developed for the Hadoop environment. This file
- * system implementation is NOT thread safe. The file system state is managed
- * statically. All instances of this class share the same static state. T
+ * to support testing of code developed for the Hadoop environment. The file
+ * system state is managed statically. This means that all instances of this
+ * class share the same static file system state. Instances in two different
+ * threads will share the same file system state. The file system is not
+ * entirely thread safe. Access to the top level static file system state is
+ * synchronized. This ensures that two instances in different threads don't
+ * result in two completely different static instances of the file system state.
+ * However, if these same instances attempt to modify the same directory or file
+ * at the same time, bad things can and probably will happen. 
+ * 
  * 
  * This file system supports the concepts of a user, user groups and
  * permissions. The default user is 'root', the default group is 'test' and the
@@ -74,7 +80,7 @@ public class InMemoryFileSystem extends FileSystem {
 
 	/** This is the configuration key for the default file system name. */
 	public static final String FS_DEFAULT_NAME_KEY = "fs.default.name";
-	
+
 	/**
 	 * The {@link Configuration} key for this file systems implementation class.
 	 */
@@ -98,16 +104,29 @@ public class InMemoryFileSystem extends FileSystem {
 
 	/**
 	 * A mapping from a path to a node in the file system. This is static shared
-	 * state between all instances of this file system.
+	 * state between all instances of this file system. No instance methods
+	 * should access this variable directly.
 	 */
-	private static Map<Path, Node> pathMap = null;
+	private static Map<Path, Node> fileSystemState = null;
 
-	private static void initializePathMap() {
-		if (pathMap == null) {
-			pathMap = new HashMap<Path, Node>();
-			pathMap.put(ROOT_PATH, new DirectoryNode(ROOT_PATH,
+	/**
+	 * @return The file system state for the current thread.
+	 */
+	private static synchronized Map<Path, Node> getPathMap() {
+		if (fileSystemState == null) {
+			fileSystemState = new HashMap<Path, Node>();
+			fileSystemState.put(ROOT_PATH, new DirectoryNode(ROOT_PATH,
 					new FsPermission(DEFAULT_PERMISSION)));
 		}
+		return fileSystemState;
+	}
+
+	/**
+	 * Clears the entire file system state. This method affects ALL instance of
+	 * the file system.
+	 */
+	public static synchronized void resetFileSystemState() {
+		fileSystemState = null;
 	}
 
 	/**
@@ -133,7 +152,7 @@ public class InMemoryFileSystem extends FileSystem {
 	 * initializes it with the specified configuration instance.
 	 * 
 	 * @param conf
-	 *            The configuration be modified and used by the file system.
+	 *            The configuration to be modified and used by the file system.
 	 * @return An instance of this file system initialized with the specified
 	 *         configuration.
 	 */
@@ -142,15 +161,6 @@ public class InMemoryFileSystem extends FileSystem {
 		InMemoryFileSystem imFs = new InMemoryFileSystem();
 		imFs.setConf(conf);
 		return imFs;
-	}
-
-	/**
-	 * Clears the entire file system state. This method affects ALL instance of
-	 * the file system.
-	 */
-	public static void resetFileSystemState() {
-		pathMap = null;
-		initializePathMap();
 	}
 
 	//
@@ -173,7 +183,6 @@ public class InMemoryFileSystem extends FileSystem {
 	 * Creates an instance of the in-memory file system.
 	 */
 	public InMemoryFileSystem() {
-		initializePathMap();
 	}
 
 	/**
@@ -202,7 +211,7 @@ public class InMemoryFileSystem extends FileSystem {
 	 */
 	private Node getNode(Path path, boolean mustExist) throws IOException {
 		Validate.notNull(path, "path == null not allowed!");
-		Node node = pathMap.get(path);
+		Node node = getPathMap().get(path);
 		if (mustExist && (node == null)) {
 			throw new IOException("'" + path + "' not found!");
 		}
@@ -319,9 +328,9 @@ public class InMemoryFileSystem extends FileSystem {
 
 		FileNode fnode = new FileNode(path, permission);
 		fnode.setOwner(user);
-		pathMap.put(path, fnode);
+		getPathMap().put(path, fnode);
 
-		DirectoryNode dnode = (DirectoryNode) pathMap.get(parentPath);
+		DirectoryNode dnode = (DirectoryNode) getPathMap().get(parentPath);
 		dnode.addFile(path);
 
 		Statistics stats = new Statistics(workingDirectory.toUri().getScheme());
@@ -351,8 +360,10 @@ public class InMemoryFileSystem extends FileSystem {
 	/**
 	 * Renames a path resource (file or directory)
 	 * 
-	 * @param src The path to the resource to be renamed. The path must exist.
-	 * @param dst The new path to for the resource. Must not already exist.
+	 * @param src
+	 *            The path to the resource to be renamed. The path must exist.
+	 * @param dst
+	 *            The new path to for the resource. Must not already exist.
 	 */
 	@Override
 	public boolean rename(Path src, Path dst) throws IOException {
@@ -377,15 +388,15 @@ public class InMemoryFileSystem extends FileSystem {
 		mkdirs(pathToDst);
 
 		snode.setPath(dst);
-		pathMap.remove(src);
-		pathMap.put(dst, snode);
+		getPathMap().remove(src);
+		getPathMap().put(dst, snode);
 
 		return true;
 	}
-	
-	
+
 	/*
 	 * (non-Javadoc)
+	 * 
 	 * @see org.apache.hadoop.fs.FileSystem#delete(org.apache.hadoop.fs.Path)
 	 */
 	@Override
@@ -433,7 +444,7 @@ public class InMemoryFileSystem extends FileSystem {
 								"Delete failed, resource is in use: "
 										+ childFile);
 					}
-					pathMap.remove(childFile);
+					getPathMap().remove(childFile);
 				}
 			} else {
 				if (((DirectoryNode) node).getSubDirectories().size() > 0) {
@@ -444,7 +455,7 @@ public class InMemoryFileSystem extends FileSystem {
 		} else if (((FileNode) node).isOpen()) {
 			throw new IOException("Delete failed, resource is in use: " + path);
 		}
-		pathMap.remove(path);
+		getPathMap().remove(path);
 		return true;
 	}
 
@@ -571,7 +582,7 @@ public class InMemoryFileSystem extends FileSystem {
 	public boolean mkdirs(Path path, FsPermission permission)
 			throws IOException {
 		path = makeAbsolute(path);
-		if (pathMap.containsKey(path)) {
+		if (getPathMap().containsKey(path)) {
 			return true;
 		}
 		checkParentDirWritePermission(path);
@@ -579,20 +590,20 @@ public class InMemoryFileSystem extends FileSystem {
 		DirectoryNode dnode = new DirectoryNode(path, permission);
 		dnode.setOwner(user);
 
-		while (parentPath != null && !pathMap.containsKey(parentPath)) {
+		while (parentPath != null && !getPathMap().containsKey(parentPath)) {
 			mkdirs(parentPath, permission);
-			DirectoryNode pNode = (DirectoryNode) pathMap.get(parentPath);
+			DirectoryNode pNode = (DirectoryNode) getPathMap().get(parentPath);
 			pNode.addSubDirectory(path);
 		}
 
-		pathMap.put(path, dnode);
+		getPathMap().put(path, dnode);
 		return true;
 	}
 
 	@Override
 	public FileStatus getFileStatus(Path path) throws IOException {
 		path = makeAbsolute(path);
-		Node node = pathMap.get(path);
+		Node node = getPathMap().get(path);
 		if (node == null) {
 			throw new IOException("'" + path + "' not found!");
 		}
