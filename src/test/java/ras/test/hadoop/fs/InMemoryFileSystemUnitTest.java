@@ -43,8 +43,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import ras.test.hadoop.fs.InMemoryFileSystem;
-
 public class InMemoryFileSystemUnitTest {
 
 	@Rule
@@ -72,8 +70,8 @@ public class InMemoryFileSystemUnitTest {
 		thrown.expectMessage(equalTo("'" + absoluteChar + path + "' not found!"));
 	}
 
-	private void expectNullPointerException(String argName) {
-		thrown.expect(NullPointerException.class);
+	private void expectNullArguementException(String argName) {
+		thrown.expect(IllegalArgumentException.class);
 		thrown.expectMessage(equalTo(argName + " == null not allowed!"));
 	}
 
@@ -88,20 +86,30 @@ public class InMemoryFileSystemUnitTest {
 	}
 
 	private void writeMessage(Path path) throws IOException {
-		FSDataOutputStream out = inMemoryFileSystem.create(path);
+		writeMessage(inMemoryFileSystem, path, message);
+	}
+
+	static void writeMessage(FileSystem fs, Path path, String message)
+			throws IOException {
+		FSDataOutputStream out = fs.create(path);
 		out.writeBytes(message);
 		out.close();
 	}
 
 	private String readMessage(Path path) throws IOException {
+		return readMessage(inMemoryFileSystem, path);
+	}
+
+	static String readMessage(FileSystem fs, Path path)
+			throws IOException {
 		BufferedReader reader = new BufferedReader(new InputStreamReader(
-				inMemoryFileSystem.open(path)));
+				fs.open(path)));
 		return reader.readLine();
 	}
 
 	@Test
 	public void testGetNullConfiguration() {
-		expectNullPointerException("conf");
+		expectNullArguementException("conf");
 		InMemoryFileSystem.get(null);
 	}
 
@@ -128,7 +136,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testSetWorkingDirectoryNull() {
-		expectNullPointerException("path");
+		expectNullArguementException("path");
 		inMemoryFileSystem.setWorkingDirectory(null);
 	}
 
@@ -168,7 +176,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testCreateNullPath() throws IOException {
-		expectNullPointerException("path");
+		expectNullArguementException("path");
 		inMemoryFileSystem.create(null, null, false, 0, (short) 0, 0, null);
 	}
 
@@ -313,7 +321,8 @@ public class InMemoryFileSystemUnitTest {
 		assertThat("Wrong message", readMessage(absoluteFile),
 				is(equalTo(message)));
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(absoluteFile);
-		assertFalse("isDir() returned true on file", fstatus.isDir());
+		assertFalse("isDirectory() returned true on file",
+				fstatus.isDirectory());
 		assertThat("getLen() returned wrong value", fstatus.getLen(),
 				is(equalTo((long) message.getBytes().length)));
 	}
@@ -324,7 +333,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testOpenNullPath() throws IOException {
-		expectNullPointerException("path");
+		expectNullArguementException("path");
 		inMemoryFileSystem.open(null);
 	}
 
@@ -369,7 +378,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testMkdirsNullPath() throws IOException {
-		expectNullPointerException("path");
+		expectNullArguementException("path");
 		inMemoryFileSystem.mkdirs(null, allReadOnly);
 	}
 
@@ -380,7 +389,7 @@ public class InMemoryFileSystemUnitTest {
 		inMemoryFileSystem.mkdirs(path, allReadOnly);
 		FileStatus fStatus = inMemoryFileSystem.getFileStatus(path);
 		assertNotNull("getFileStatus() returned null", fStatus);
-		assertTrue("Not a directory!", fStatus.isDir());
+		assertTrue("Not a directory!", fStatus.isDirectory());
 		assertThat("Wrong length for directory", fStatus.getLen(),
 				is(equalTo(0l)));
 		assertThat("Wrong permissions", fStatus.getPermission(),
@@ -411,7 +420,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testDeleteNullPath() throws IOException {
-		expectNullPointerException("path");
+		expectNullArguementException("path");
 		inMemoryFileSystem.delete(null, true);
 	}
 
@@ -508,7 +517,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testAppendNullPath() throws IOException {
-		expectNullPointerException("path");
+		expectNullArguementException("path");
 		inMemoryFileSystem.append(null, 0, null);
 	}
 
@@ -554,7 +563,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testListStatusNullPath() throws IOException {
-		expectNullPointerException("path");
+		expectNullArguementException("path");
 		inMemoryFileSystem.listStatus((Path) null);
 	}
 
@@ -638,19 +647,19 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void setUserNull() {
-		expectNullPointerException("user");
+		expectNullArguementException("user");
 		inMemoryFileSystem.setUser(null);
 	}
 
 	@Test
 	public void setUserGroupsNull() {
-		expectNullPointerException("groups");
+		expectNullArguementException("groups");
 		inMemoryFileSystem.setUser("me", (String[]) null);
 	}
 
 	@Test
 	public void setUserGroupsContainsNull() {
-		expectNullPointerException("groups[i]");
+		expectNullArguementException("groups[i]");
 		inMemoryFileSystem.setUser("me", (String) null);
 	}
 
@@ -856,13 +865,13 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testRenameNullSource() throws IOException {
-		expectNullPointerException("src");
+		expectNullArguementException("src");
 		inMemoryFileSystem.rename(null, new Path("destination"));
 	}
 
 	@Test
 	public void testRenameNullDestination() throws IOException {
-		expectNullPointerException("dst");
+		expectNullArguementException("dst");
 		inMemoryFileSystem.rename(new Path("source"), null);
 	}
 
@@ -892,7 +901,7 @@ public class InMemoryFileSystemUnitTest {
 		inMemoryFileSystem.rename(source, destination);
 
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(destination);
-		assertTrue("Destination not a directory", fstatus.isDir());
+		assertTrue("Destination not a directory", fstatus.isDirectory());
 
 		setMustExist(source);
 		inMemoryFileSystem.getFileStatus(source);
@@ -927,9 +936,9 @@ public class InMemoryFileSystemUnitTest {
 
 		inMemoryFileSystem.rename(srcPath, dstPath);
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(dstDir);
-		assertTrue(fstatus.isDir());
+		assertTrue(fstatus.isDirectory());
 		fstatus = inMemoryFileSystem.getFileStatus(dstPath);
-		assertFalse(fstatus.isDir());
+		assertFalse(fstatus.isDirectory());
 	}
 
 	@Test
@@ -955,5 +964,41 @@ public class InMemoryFileSystemUnitTest {
 
 		expectIOException("Permission denied!");
 		inMemoryFileSystem.rename(source, destination);
+	}
+
+	@Test
+	public void testFileSystemCopyEmptyDirectory() throws IOException {
+		InMemoryFileSystem srcFs = inMemoryFileSystem;
+		InMemoryFileSystem dstFs = new InMemoryFileSystem("file");
+		Path srcPath = new Path("emptyDir");
+		srcFs.mkdirs(srcPath);
+
+		Path dstParentPath = new Path("/");
+		InMemoryFileSystem.copy(srcFs, srcPath, dstFs, dstParentPath);
+
+		Path dstPath = new Path(dstParentPath, srcPath.getName());
+		FileStatus fstatus = dstFs.getFileStatus(dstPath);
+		assertNotNull("Destination directory not created!", fstatus);
+	}
+
+	@Test
+	public void testFileSystemCopyDirectoryWithSubDir() throws IOException {
+		InMemoryFileSystem srcFs = inMemoryFileSystem;
+		InMemoryFileSystem dstFs = new InMemoryFileSystem("file");
+		dstFs.setConf(new Configuration());
+		
+		srcFs.mkdirs(new Path("parentDir/subDir/subSubDir"));
+		writeMessage(srcFs, new Path("parentDir/parentMsg.txt"), message);
+
+		Path srcPath = new Path("parentDir");
+		Path dstParentPath = new Path("/");
+		InMemoryFileSystem.copy(srcFs, srcPath, dstFs, dstParentPath);
+
+		FileStatus fstatus = dstFs.getFileStatus(new Path(dstParentPath,
+				"parentDir/subDir/subSubDir"));
+		assertNotNull("Destination directory not created!", fstatus);
+		assertThat("Wrong message in parentDir",
+				readMessage(dstFs, new Path("/parentDir/parentMsg.txt")),
+				is(equalTo(message)));
 	}
 }

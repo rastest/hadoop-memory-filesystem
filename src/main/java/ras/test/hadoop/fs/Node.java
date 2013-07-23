@@ -17,11 +17,11 @@ package ras.test.hadoop.fs;
 
 import static ras.test.hadoop.fs.InMemoryFileSystem.DEFAULT_PERMISSION;
 
-import org.apache.commons.lang3.Validate;
+import org.apache.commons.lang.Validate;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 
-class Node {
+abstract class Node {
 	private Path path;
 	private FsPermission permissions;
 	private String owner = "root";

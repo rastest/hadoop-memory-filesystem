@@ -15,6 +15,7 @@
  */
 package ras.test.hadoop.fs;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -26,12 +27,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang3.Validate;
+import org.apache.commons.lang.Validate;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
@@ -47,7 +49,7 @@ import org.apache.hadoop.util.Progressable;
  * synchronized. This ensures that two instances in different threads don't
  * result in two completely different static instances of the file system state.
  * However, if these same instances attempt to modify the same directory or file
- * at the same time, bad things can and probably will happen. 
+ * at the same time, bad things can and probably will happen.
  * 
  * 
  * This file system supports the concepts of a user, user groups and
@@ -107,20 +109,41 @@ public class InMemoryFileSystem extends FileSystem {
 	 * state between all instances of this file system. No instance methods
 	 * should access this variable directly.
 	 */
-	private static Map<Path, Node> fileSystemState = null;
+	private static Map<URI, Map<String, Node>> fileSystemState = null;
 
 	/**
 	 * @return The file system state for the current thread.
 	 */
-	private static synchronized Map<Path, Node> getPathMap() {
+	private static synchronized Map<String, Node> getPathMap(URI fsName) {
 		if (fileSystemState == null) {
-			fileSystemState = new HashMap<Path, Node>();
-			fileSystemState.put(ROOT_PATH, new DirectoryNode(ROOT_PATH,
-					new FsPermission(DEFAULT_PERMISSION)));
+			fileSystemState = new HashMap<URI, Map<String, Node>>();
 		}
-		return fileSystemState;
+		Map<String, Node> pathMap = fileSystemState.get(fsName);
+		if (pathMap == null) {
+			pathMap = new HashMap<String, Node>();
+			pathMap.put(ROOT_PATH.toUri().getPath(), new DirectoryNode(
+					ROOT_PATH, new FsPermission(DEFAULT_PERMISSION)));
+			fileSystemState.put(fsName, pathMap);
+		}
+		return pathMap;
 	}
 
+	private static Node getPathMapNode(URI fsName, Path path) {
+		return getPathMap(fsName).get(path.toUri().getPath());
+	}
+
+	private static void setPathMapNode(URI fsName, Path path, Node node){
+		getPathMap(fsName).put(path.toUri().getPath(), node);
+	}
+	
+	private static boolean containsNode(URI fsName, Path path){
+		return getPathMap(fsName).containsKey(path.toUri().getPath());
+	}
+	
+	private static void removeNode(URI fsName, Path path){
+		getPathMap(fsName).remove(path.toUri().getPath());
+	}
+	
 	/**
 	 * Clears the entire file system state. This method affects ALL instance of
 	 * the file system.
@@ -163,9 +186,40 @@ public class InMemoryFileSystem extends FileSystem {
 		return imFs;
 	}
 
+	static void copy(InMemoryFileSystem srcFs, Path srcPath,
+			InMemoryFileSystem dstFs, Path dstParentPath) throws IOException {
+
+		FileUtil.copy(srcFs, srcPath, dstFs, dstParentPath, false, false,
+				new Configuration());
+	}
+
+	/**
+	 * A simple helper method for testing which creates a file in the file
+	 * system
+	 * 
+	 * @param path
+	 *            The path of the file to be created.
+	 * @param contents
+	 *            the contents to be stored in the file.
+	 * @throws IOException
+	 */
+	public static void createFile(Path path, String contents)
+			throws IOException {
+		InMemoryFileSystem fs = InMemoryFileSystem.get(new Configuration());
+		FSDataOutputStream out = fs.create(path);
+		try {
+			out.writeBytes(contents);
+		} finally {
+			out.close();
+			fs.close();
+		}
+	}
+
 	//
 	// File System instance state...
 	//
+
+	private final URI name;
 
 	/** The current file system user. */
 	private String user = DEFAULT_USER;
@@ -183,14 +237,19 @@ public class InMemoryFileSystem extends FileSystem {
 	 * Creates an instance of the in-memory file system.
 	 */
 	public InMemoryFileSystem() {
+		this.name = NAME;
+	}
+
+	public InMemoryFileSystem(String scheme) {
+		this.name = URI.create(scheme + ":///");
 	}
 
 	/**
-	 * @return the URI for this file system, <code>memory:///</code>.
+	 * @return the URI for this file system.
 	 */
 	@Override
 	public URI getUri() {
-		return NAME;
+		return this.name;
 	}
 
 	/**
@@ -211,7 +270,7 @@ public class InMemoryFileSystem extends FileSystem {
 	 */
 	private Node getNode(Path path, boolean mustExist) throws IOException {
 		Validate.notNull(path, "path == null not allowed!");
-		Node node = getPathMap().get(path);
+		Node node = getPathMapNode(name, path);
 		if (mustExist && (node == null)) {
 			throw new IOException("'" + path + "' not found!");
 		}
@@ -305,9 +364,9 @@ public class InMemoryFileSystem extends FileSystem {
 		String pathScheme = path.toUri().getScheme();
 		if (pathScheme != null) {
 			Validate.isTrue(
-					NAME.getScheme().equals(pathScheme),
+					name.getScheme().equals(pathScheme),
 					"Wrong file system: " + pathScheme + ", expected: "
-							+ NAME.getScheme());
+							+ name.getScheme());
 		}
 		checkParentDirWritePermission(path);
 		Node node = getNode(path, false);
@@ -328,9 +387,9 @@ public class InMemoryFileSystem extends FileSystem {
 
 		FileNode fnode = new FileNode(path, permission);
 		fnode.setOwner(user);
-		getPathMap().put(path, fnode);
+		setPathMapNode(name, path, fnode);
 
-		DirectoryNode dnode = (DirectoryNode) getPathMap().get(parentPath);
+		DirectoryNode dnode = (DirectoryNode) getPathMapNode(name, parentPath);
 		dnode.addFile(path);
 
 		Statistics stats = new Statistics(workingDirectory.toUri().getScheme());
@@ -388,8 +447,8 @@ public class InMemoryFileSystem extends FileSystem {
 		mkdirs(pathToDst);
 
 		snode.setPath(dst);
-		getPathMap().remove(src);
-		getPathMap().put(dst, snode);
+		removeNode(name, src);
+		setPathMapNode(name, dst, snode);
 
 		return true;
 	}
@@ -444,7 +503,7 @@ public class InMemoryFileSystem extends FileSystem {
 								"Delete failed, resource is in use: "
 										+ childFile);
 					}
-					getPathMap().remove(childFile);
+					removeNode(name, childFile);
 				}
 			} else {
 				if (((DirectoryNode) node).getSubDirectories().size() > 0) {
@@ -455,7 +514,7 @@ public class InMemoryFileSystem extends FileSystem {
 		} else if (((FileNode) node).isOpen()) {
 			throw new IOException("Delete failed, resource is in use: " + path);
 		}
-		getPathMap().remove(path);
+		removeNode(name, path);
 		return true;
 	}
 
@@ -582,7 +641,7 @@ public class InMemoryFileSystem extends FileSystem {
 	public boolean mkdirs(Path path, FsPermission permission)
 			throws IOException {
 		path = makeAbsolute(path);
-		if (getPathMap().containsKey(path)) {
+		if (containsNode(name, path)) {
 			return true;
 		}
 		checkParentDirWritePermission(path);
@@ -590,22 +649,23 @@ public class InMemoryFileSystem extends FileSystem {
 		DirectoryNode dnode = new DirectoryNode(path, permission);
 		dnode.setOwner(user);
 
-		while (parentPath != null && !getPathMap().containsKey(parentPath)) {
+		while (parentPath != null && !containsNode(name, parentPath)) {
 			mkdirs(parentPath, permission);
-			DirectoryNode pNode = (DirectoryNode) getPathMap().get(parentPath);
+			DirectoryNode pNode = (DirectoryNode) getPathMapNode(name,
+					parentPath);
 			pNode.addSubDirectory(path);
 		}
 
-		getPathMap().put(path, dnode);
+		setPathMapNode(name, path, dnode);
 		return true;
 	}
 
 	@Override
 	public FileStatus getFileStatus(Path path) throws IOException {
 		path = makeAbsolute(path);
-		Node node = getPathMap().get(path);
+		Node node = getPathMapNode(name, path);
 		if (node == null) {
-			throw new IOException("'" + path + "' not found!");
+			throw new FileNotFoundException("'" + path + "' not found!");
 		}
 		long length = 0;
 		boolean isDir = true;
