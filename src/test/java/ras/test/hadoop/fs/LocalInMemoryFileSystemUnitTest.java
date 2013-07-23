@@ -36,7 +36,7 @@ public class LocalInMemoryFileSystemUnitTest {
 	@Test
 	public void testLocalizeCacheFilesFileDoesNotExist()
 			throws URISyntaxException, IOException {
-		Path file = new Path("file:///nosuchfile");
+		Path file = new Path("/nosuchfile");
 		Configuration conf = new Configuration();
 		DistributedCache.addCacheFile(file.toUri(), conf);
 

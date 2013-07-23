@@ -322,7 +322,7 @@ public class InMemoryFileSystemUnitTest {
 				is(equalTo(message)));
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(absoluteFile);
 		assertFalse("isDirectory() returned true on file",
-				fstatus.isDirectory());
+				fstatus.isDir());
 		assertThat("getLen() returned wrong value", fstatus.getLen(),
 				is(equalTo((long) message.getBytes().length)));
 	}
@@ -389,7 +389,7 @@ public class InMemoryFileSystemUnitTest {
 		inMemoryFileSystem.mkdirs(path, allReadOnly);
 		FileStatus fStatus = inMemoryFileSystem.getFileStatus(path);
 		assertNotNull("getFileStatus() returned null", fStatus);
-		assertTrue("Not a directory!", fStatus.isDirectory());
+		assertTrue("Not a directory!", fStatus.isDir());
 		assertThat("Wrong length for directory", fStatus.getLen(),
 				is(equalTo(0l)));
 		assertThat("Wrong permissions", fStatus.getPermission(),
@@ -901,7 +901,7 @@ public class InMemoryFileSystemUnitTest {
 		inMemoryFileSystem.rename(source, destination);
 
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(destination);
-		assertTrue("Destination not a directory", fstatus.isDirectory());
+		assertTrue("Destination not a directory", fstatus.isDir());
 
 		setMustExist(source);
 		inMemoryFileSystem.getFileStatus(source);
@@ -936,9 +936,9 @@ public class InMemoryFileSystemUnitTest {
 
 		inMemoryFileSystem.rename(srcPath, dstPath);
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(dstDir);
-		assertTrue(fstatus.isDirectory());
+		assertTrue(fstatus.isDir());
 		fstatus = inMemoryFileSystem.getFileStatus(dstPath);
-		assertFalse(fstatus.isDirectory());
+		assertFalse(fstatus.isDir());
 	}
 
 	@Test

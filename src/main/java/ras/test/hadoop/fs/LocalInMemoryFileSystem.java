@@ -67,7 +67,7 @@ public class LocalInMemoryFileSystem extends LocalFileSystem {
 
 		for (URI uri : cacheFiles) {
 			FileSystem srcFs = FileSystem.get(uri, conf);
-			Path srcPath = new Path(uri);
+			Path srcPath = new Path(uri.getPath());
 			localFiles.add(new Path(dstPath, srcPath.getName()).toUri()
 					.toString());
 			FileUtil.copy(srcFs, srcPath, dstFs, dstPath, false, false, conf);
