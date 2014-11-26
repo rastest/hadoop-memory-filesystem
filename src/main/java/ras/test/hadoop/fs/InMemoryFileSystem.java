@@ -132,18 +132,18 @@ public class InMemoryFileSystem extends FileSystem {
 		return getPathMap(fsName).get(path.toUri().getPath());
 	}
 
-	private static void setPathMapNode(URI fsName, Path path, Node node){
+	private static void setPathMapNode(URI fsName, Path path, Node node) {
 		getPathMap(fsName).put(path.toUri().getPath(), node);
 	}
-	
-	private static boolean containsNode(URI fsName, Path path){
+
+	private static boolean containsNode(URI fsName, Path path) {
 		return getPathMap(fsName).containsKey(path.toUri().getPath());
 	}
-	
-	private static void removeNode(URI fsName, Path path){
+
+	private static void removeNode(URI fsName, Path path) {
 		getPathMap(fsName).remove(path.toUri().getPath());
 	}
-	
+
 	/**
 	 * Clears the entire file system state. This method affects ALL instance of
 	 * the file system.
@@ -194,17 +194,19 @@ public class InMemoryFileSystem extends FileSystem {
 	}
 
 	/**
-	 * A simple helper method for testing which creates a file in the file
-	 * system
+	 * A simple helper method for testing which creates a file in the default
+	 * file system.
 	 * 
 	 * @param path
-	 *            The path of the file to be created.
+	 *            The path of the file to be created. Must not be {@code null}.
 	 * @param contents
-	 *            the contents to be stored in the file.
+	 *            the contents to be stored in the file. Must not be
+	 *            {@code null}.
 	 * @throws IOException
 	 */
 	public static void createFile(Path path, String contents)
 			throws IOException {
+		Validate.notNull(contents, "contents == null not allowed!");
 		InMemoryFileSystem fs = InMemoryFileSystem.get(new Configuration());
 		FSDataOutputStream out = fs.create(path);
 		try {

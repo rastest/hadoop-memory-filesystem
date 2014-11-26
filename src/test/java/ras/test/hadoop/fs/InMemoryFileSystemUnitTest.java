@@ -64,52 +64,13 @@ public class InMemoryFileSystemUnitTest {
 		InMemoryFileSystem.resetFileSystemState();
 	}
 
-	private void setMustExist(Path path) {
-		thrown.expect(IOException.class);
-		String absoluteChar = (path.isAbsolute()) ? "" : "/";
-		thrown.expectMessage(equalTo("'" + absoluteChar + path + "' not found!"));
-	}
-
-	private void expectNullArguementException(String argName) {
-		thrown.expect(IllegalArgumentException.class);
-		thrown.expectMessage(equalTo(argName + " == null not allowed!"));
-	}
-
-	private void expectIllegalArgumentException(String message) {
-		thrown.expect(IllegalArgumentException.class);
-		thrown.expectMessage(equalTo(message));
-	}
-
-	private void expectIOException(String message) {
-		thrown.expect(IOException.class);
-		thrown.expectMessage(equalTo(message));
-	}
-
-	private void writeMessage(Path path) throws IOException {
-		writeMessage(inMemoryFileSystem, path, message);
-	}
-
-	static void writeMessage(FileSystem fs, Path path, String message)
-			throws IOException {
-		FSDataOutputStream out = fs.create(path);
-		out.writeBytes(message);
-		out.close();
-	}
-
-	private String readMessage(Path path) throws IOException {
-		return readMessage(inMemoryFileSystem, path);
-	}
-
-	static String readMessage(FileSystem fs, Path path)
-			throws IOException {
-		BufferedReader reader = new BufferedReader(new InputStreamReader(
-				fs.open(path)));
-		return reader.readLine();
-	}
+	//
+	// Test InMemoryFileSystem.get(Configuration)
+	//
 
 	@Test
 	public void testGetNullConfiguration() {
-		expectNullArguementException("conf");
+		expectNullArgumentException("conf");
 		InMemoryFileSystem.get(null);
 	}
 
@@ -134,9 +95,13 @@ public class InMemoryFileSystemUnitTest {
 				is(equalTo(InMemoryFileSystem.NAME)));
 	}
 
+	//
+	// Test setWorkingDirectory(Path)/getWorkingDirectory()
+	//
+
 	@Test
 	public void testSetWorkingDirectoryNull() {
-		expectNullArguementException("path");
+		expectNullArgumentException("path");
 		inMemoryFileSystem.setWorkingDirectory(null);
 	}
 
@@ -174,9 +139,13 @@ public class InMemoryFileSystemUnitTest {
 				is(equalTo(new Path("/"))));
 	}
 
+	//
+	// Test create(path)/open(path)/close()
+	//
+
 	@Test
 	public void testCreateNullPath() throws IOException {
-		expectNullArguementException("path");
+		expectNullArgumentException("path");
 		inMemoryFileSystem.create(null, null, false, 0, (short) 0, 0, null);
 	}
 
@@ -321,19 +290,30 @@ public class InMemoryFileSystemUnitTest {
 		assertThat("Wrong message", readMessage(absoluteFile),
 				is(equalTo(message)));
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(absoluteFile);
-		assertFalse("isDirectory() returned true on file",
-				fstatus.isDir());
+		assertFalse("isDirectory() returned true on file", fstatus.isDir());
 		assertThat("getLen() returned wrong value", fstatus.getLen(),
 				is(equalTo((long) message.getBytes().length)));
 	}
 
+	@Test
+	public void testStaticCreateFileNullPath() throws IOException{
+		expectIllegalArgumentException("path == null not allowed!");
+		InMemoryFileSystem.createFile(null, "Hello World!");
+	}
+	
+	@Test
+	public void testStaticCreateFileNullContent() throws IOException{
+		expectIllegalArgumentException("contents == null not allowed!");
+		InMemoryFileSystem.createFile(path, null);
+	}
+	
 	//
 	// open() Tests
 	//
 
 	@Test
 	public void testOpenNullPath() throws IOException {
-		expectNullArguementException("path");
+		expectNullArgumentException("path");
 		inMemoryFileSystem.open(null);
 	}
 
@@ -342,13 +322,9 @@ public class InMemoryFileSystemUnitTest {
 		Path dirPath = new Path("mydir");
 		inMemoryFileSystem.mkdirs(dirPath);
 
-		// thrown.expect(IOException.class);
-		// thrown.expect(equalTo("'"+dirPath+"' is not a file!"));
 		try {
-			inMemoryFileSystem.open(dirPath);
+			inMemoryFileSystem.open(dirPath, 4096);
 		} catch (IOException e) {
-			// System.out.println("'" + dirPath + "' is not a file!");
-			// System.out.println(e.getLocalizedMessage());
 			assertThat("Wrong exception message", e.getLocalizedMessage(),
 					is(equalTo("'/" + dirPath + "' is not a file!")));
 		}
@@ -357,7 +333,7 @@ public class InMemoryFileSystemUnitTest {
 	@Test
 	public void testOpenNoSuchFile() throws IOException {
 		Path path = new Path("/nosuchfile.txt");
-		setMustExist(path);
+		expectPathMustExistIOException(path);
 		inMemoryFileSystem.open(path);
 	}
 
@@ -368,7 +344,7 @@ public class InMemoryFileSystemUnitTest {
 	@Test
 	public void testGetFileStatusNoSuchPath() throws IOException {
 		Path path = new Path("/mydoc.txt");
-		setMustExist(path);
+		expectPathMustExistIOException(path);
 		inMemoryFileSystem.getFileStatus(path);
 	}
 
@@ -378,7 +354,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testMkdirsNullPath() throws IOException {
-		expectNullArguementException("path");
+		expectNullArgumentException("path");
 		inMemoryFileSystem.mkdirs(null, allReadOnly);
 	}
 
@@ -420,14 +396,14 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testDeleteNullPath() throws IOException {
-		expectNullArguementException("path");
+		expectNullArgumentException("path");
 		inMemoryFileSystem.delete(null, true);
 	}
 
 	@Test
 	public void testDeleteNonExistentPath() throws IOException {
 		Path path = new Path("/nosuchfileordirectory");
-		setMustExist(path);
+		expectPathMustExistIOException(path);
 		inMemoryFileSystem.delete(path, true);
 	}
 
@@ -437,10 +413,19 @@ public class InMemoryFileSystemUnitTest {
 		inMemoryFileSystem.mkdirs(path);
 
 		assertTrue("delete() returned false",
-				inMemoryFileSystem.delete(path, true));
+				inMemoryFileSystem.delete(path, false));
 
-		setMustExist(path);
+		expectPathMustExistIOException(path);
 		inMemoryFileSystem.getFileStatus(path);
+	}
+
+	@Test
+	public void testDeleteFile() throws IOException {
+		Path path = new Path("data.txt");
+		InMemoryFileSystem.createFile(path, "Hello World");
+		assertTrue("Test setup failed!", inMemoryFileSystem.exists(path));
+		inMemoryFileSystem.delete(path, false);
+		assertFalse("Delete failed!", inMemoryFileSystem.exists(path));
 	}
 
 	@Test
@@ -454,7 +439,7 @@ public class InMemoryFileSystemUnitTest {
 				inMemoryFileSystem.delete(baseDir, true));
 
 		// See if the sub-directory still exists...
-		setMustExist(subDir);
+		expectPathMustExistIOException(subDir);
 		inMemoryFileSystem.getFileStatus(subDir);
 	}
 
@@ -488,7 +473,7 @@ public class InMemoryFileSystemUnitTest {
 
 		inMemoryFileSystem.delete(dirPath, true);
 
-		setMustExist(filePath);
+		expectPathMustExistIOException(filePath);
 		inMemoryFileSystem.getFileStatus(filePath);
 	}
 
@@ -498,7 +483,7 @@ public class InMemoryFileSystemUnitTest {
 		inMemoryFileSystem.create(file);
 
 		expectIOException("Delete failed, resource is in use: " + file);
-		inMemoryFileSystem.delete(file, true);
+		inMemoryFileSystem.delete(file, false);
 	}
 
 	@Test
@@ -517,14 +502,14 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testAppendNullPath() throws IOException {
-		expectNullArguementException("path");
+		expectNullArgumentException("path");
 		inMemoryFileSystem.append(null, 0, null);
 	}
 
 	@Test
 	public void testAppendNonExistentFile() throws IOException {
 		Path path = new Path("nosuchfile");
-		setMustExist(path);
+		expectPathMustExistIOException(path);
 		inMemoryFileSystem.append(path);
 	}
 
@@ -563,7 +548,7 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testListStatusNullPath() throws IOException {
-		expectNullArguementException("path");
+		expectNullArgumentException("path");
 		inMemoryFileSystem.listStatus((Path) null);
 	}
 
@@ -614,7 +599,7 @@ public class InMemoryFileSystemUnitTest {
 	@Test
 	public void testSetOwnerAndGroupNonExistentPath() throws IOException {
 		Path path = new Path("/nosuchdir/nosuchfile.txt");
-		setMustExist(path);
+		expectPathMustExistIOException(path);
 		inMemoryFileSystem.setOwner(path, "me", "mygroup");
 	}
 
@@ -647,19 +632,19 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void setUserNull() {
-		expectNullArguementException("user");
+		expectNullArgumentException("user");
 		inMemoryFileSystem.setUser(null);
 	}
 
 	@Test
 	public void setUserGroupsNull() {
-		expectNullArguementException("groups");
+		expectNullArgumentException("groups");
 		inMemoryFileSystem.setUser("me", (String[]) null);
 	}
 
 	@Test
 	public void setUserGroupsContainsNull() {
-		expectNullArguementException("groups[i]");
+		expectNullArgumentException("groups[i]");
 		inMemoryFileSystem.setUser("me", (String) null);
 	}
 
@@ -865,20 +850,20 @@ public class InMemoryFileSystemUnitTest {
 
 	@Test
 	public void testRenameNullSource() throws IOException {
-		expectNullArguementException("src");
+		expectNullArgumentException("src");
 		inMemoryFileSystem.rename(null, new Path("destination"));
 	}
 
 	@Test
 	public void testRenameNullDestination() throws IOException {
-		expectNullArguementException("dst");
+		expectNullArgumentException("dst");
 		inMemoryFileSystem.rename(new Path("source"), null);
 	}
 
 	@Test
 	public void testRenameSourceDoesNotExist() throws IOException {
 		Path source = new Path("source");
-		setMustExist(source);
+		expectPathMustExistIOException(source);
 		inMemoryFileSystem.rename(source, new Path("destination"));
 	}
 
@@ -902,8 +887,9 @@ public class InMemoryFileSystemUnitTest {
 
 		FileStatus fstatus = inMemoryFileSystem.getFileStatus(destination);
 		assertTrue("Destination not a directory", fstatus.isDir());
-
-		setMustExist(source);
+		assertFalse("Original path still exists!",
+				inMemoryFileSystem.exists(source));
+		expectPathMustExistIOException(source);
 		inMemoryFileSystem.getFileStatus(source);
 	}
 
@@ -986,7 +972,7 @@ public class InMemoryFileSystemUnitTest {
 		InMemoryFileSystem srcFs = inMemoryFileSystem;
 		InMemoryFileSystem dstFs = new InMemoryFileSystem("file");
 		dstFs.setConf(new Configuration());
-		
+
 		srcFs.mkdirs(new Path("parentDir/subDir/subSubDir"));
 		writeMessage(srcFs, new Path("parentDir/parentMsg.txt"), message);
 
@@ -1000,5 +986,51 @@ public class InMemoryFileSystemUnitTest {
 		assertThat("Wrong message in parentDir",
 				readMessage(dstFs, new Path("/parentDir/parentMsg.txt")),
 				is(equalTo(message)));
+	}
+
+	//
+	// End of tests
+	//
+
+	private void expectPathMustExistIOException(Path path) {
+		thrown.expect(IOException.class);
+		String absoluteChar = (path.isAbsolute()) ? "" : "/";
+		thrown.expectMessage(equalTo("'" + absoluteChar + path + "' not found!"));
+	}
+
+	private void expectNullArgumentException(String argName) {
+		thrown.expect(IllegalArgumentException.class);
+		thrown.expectMessage(equalTo(argName + " == null not allowed!"));
+	}
+
+	private void expectIllegalArgumentException(String message) {
+		thrown.expect(IllegalArgumentException.class);
+		thrown.expectMessage(equalTo(message));
+	}
+
+	private void expectIOException(String message) {
+		thrown.expect(IOException.class);
+		thrown.expectMessage(equalTo(message));
+	}
+
+	private void writeMessage(Path path) throws IOException {
+		writeMessage(inMemoryFileSystem, path, message);
+	}
+
+	static void writeMessage(FileSystem fs, Path path, String message)
+			throws IOException {
+		FSDataOutputStream out = fs.create(path);
+		out.writeBytes(message);
+		out.close();
+	}
+
+	private String readMessage(Path path) throws IOException {
+		return readMessage(inMemoryFileSystem, path);
+	}
+
+	static String readMessage(FileSystem fs, Path path) throws IOException {
+		BufferedReader reader = new BufferedReader(new InputStreamReader(
+				fs.open(path)));
+		return reader.readLine();
 	}
 }
