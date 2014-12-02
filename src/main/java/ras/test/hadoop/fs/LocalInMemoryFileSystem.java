@@ -1,3 +1,18 @@
+/**
+ * Copyright 2013 Red Arch Solutions, Incorporated
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package ras.test.hadoop.fs;
 
 import java.io.IOException;
@@ -32,10 +47,12 @@ public class LocalInMemoryFileSystem extends LocalFileSystem {
 	public static final String CONFIG_IMPL_CLASS_KEY = "fs." + SCHEME + ".impl";
 
 	/**
-	 * The base path in which distributed cache files are 'localized' when 
+	 * The base path in which distributed cache files are 'localized' when
 	 * {@link #localizeCacheFiles(Configuration) is called.
 	 */
 	public static final String BASE_LOCAL_CACHE_FILE_DIR = "/mapred/local/taskTracker/distcache/";
+
+	public static final String LOCAL_FILES_KEY = "mapred.cache.localFiles";
 
 	/**
 	 * Sets up the <code>conf</code> argument to use this file system as the
@@ -53,17 +70,34 @@ public class LocalInMemoryFileSystem extends LocalFileSystem {
 		conf.set(CONFIG_IMPL_CLASS_KEY, LocalInMemoryFileSystem.class.getName());
 	}
 
+	/**
+	 * 
+	 * @param conf
+	 *            The configuration whose distributed cache files are to be
+	 *            localized.
+	 * @throws IOException
+	 * @throws IllegalStateException
+	 *             If the {@code conf} has not been properly initialized via a
+	 *             call to {@link InMemoryFileSystem#configure(Configuration)}.
+	 */
+	@SuppressWarnings("resource")
 	public static void localizeCacheFiles(Configuration conf)
 			throws IOException {
 		Validate.notNull(conf, "conf == null not allowed!");
-		conf.set(CONFIG_IMPL_CLASS_KEY, LocalInMemoryFileSystem.class.getName());
-		URI[] cacheFiles = DistributedCache.getCacheFiles(conf);
+
+
 		LocalInMemoryFileSystem dstFs = new LocalInMemoryFileSystem();
 		dstFs.setConf(conf);
 		Path dstPath = new Path(BASE_LOCAL_CACHE_FILE_DIR);
 		dstFs.mkdirs(dstPath);
 
 		List<String> localFiles = new ArrayList<String>();
+		URI[] cacheFiles = DistributedCache.getCacheFiles(conf);
+		
+		if (cacheFiles == null || cacheFiles.length == 0) {
+			throw new IllegalStateException(
+					"No files added to distributed cache!");
+		}
 
 		for (URI uri : cacheFiles) {
 			FileSystem srcFs = FileSystem.get(uri, conf);
@@ -72,7 +106,7 @@ public class LocalInMemoryFileSystem extends LocalFileSystem {
 					.toString());
 			FileUtil.copy(srcFs, srcPath, dstFs, dstPath, false, false, conf);
 		}
-		conf.set("mapred.cache.localFiles", StringUtils.join(localFiles, ","));
+		conf.set(LOCAL_FILES_KEY, StringUtils.join(localFiles, ","));
 	}
 
 	public LocalInMemoryFileSystem() {
@@ -80,6 +114,7 @@ public class LocalInMemoryFileSystem extends LocalFileSystem {
 		setVerifyChecksum(false);
 	}
 
+	@Override
 	public void initialize(URI name, Configuration conf) throws IOException {
 		super.initialize(name, conf);
 		fs.setConf(conf);

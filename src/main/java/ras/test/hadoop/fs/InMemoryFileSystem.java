@@ -41,47 +41,55 @@ import org.apache.hadoop.util.Progressable;
 
 /**
  * An in-memory implementation of a {@link FileSystem}. This class was written
- * to support testing of code developed for the Hadoop environment. The file
- * system state is managed statically. This means that all instances of this
- * class share the same static file system state. Instances in two different
- * threads will share the same file system state. The file system is not
- * entirely thread safe. Access to the top level static file system state is
- * synchronized. This ensures that two instances in different threads don't
- * result in two completely different static instances of the file system state.
- * However, if these same instances attempt to modify the same directory or file
- * at the same time, bad things can and probably will happen.
- * 
+ * to support testing of code developed for the Hadoop environment.
+ * <p>
+ * The file system state is managed statically. Each call to
+ * {@link #configure(Configuration)} creates a new file system context in static
+ * memory. A handle to file system context is stored in the supplied
+ * configuration instance. File system instances which share this configuration
+ * will share the same static file system state. A file system context is not
+ * thread safe. In other words, sharing a configuration or file system instance
+ * across threads is dangerous.
+ * <p>
  * 
  * This file system supports the concepts of a user, user groups and
  * permissions. The default user is 'root', the default group is 'test' and the
  * default permission is '777'. There is no support for the application of a
  * 'umask'.
+ * <p>
  * 
  * This file system does not support monitoring progress through the
  * {@link Progressable} interface.
+ * <p>
  * 
  * This file system does not support symbolic links.
- * 
+ * <p>
  * Details on permissions:
  * http://hadoop.apache.org/docs/r1.0.4/hdfs_permissions_guide.html
- * 
+ */
+
+/*
  * TODO: Fix permission denied message to include path
  * 
  * TODO: Change the default file permission to 666
  * 
  * TODO: Test rename() with open file
- * 
  */
 public class InMemoryFileSystem extends FileSystem {
 
-	/** The scheme for this file system, "memory". */
-	public static final String SCHEME = "memory";
+	/** The scheme for the default file system: "hdfs". */
+	public static final String SCHEME = "hdfs";
 
 	/** The URI for this file system. */
 	public static final URI NAME = URI.create(SCHEME + ":///");
 
 	/** This is the configuration key for the default file system name. */
 	public static final String FS_DEFAULT_NAME_KEY = "fs.default.name";
+
+	/** The configuration key for the in memory file system context. */
+	public static final String CONTEXT_KEY = "memory.fs.context";
+
+	private static int context_number = 0;
 
 	/**
 	 * The {@link Configuration} key for this file systems implementation class.
@@ -109,47 +117,75 @@ public class InMemoryFileSystem extends FileSystem {
 	 * state between all instances of this file system. No instance methods
 	 * should access this variable directly.
 	 */
-	private static Map<URI, Map<String, Node>> fileSystemState = null;
+	private static Map<String, Map<URI, Map<String, Node>>> fileSystemState = null;
 
 	/**
 	 * @return The file system state for the current thread.
 	 */
-	private static synchronized Map<String, Node> getPathMap(URI fsName) {
-		if (fileSystemState == null) {
-			fileSystemState = new HashMap<URI, Map<String, Node>>();
+	private static synchronized Map<String, Node> getPathMap(
+			Configuration conf, URI fsName) {
+		if (conf == null) {
+			throw new IllegalStateException(
+					"The file system configuration is not set!");
 		}
-		Map<String, Node> pathMap = fileSystemState.get(fsName);
+
+		String context = conf.get(CONTEXT_KEY);
+		if (context == null) {
+			throw new IllegalStateException(
+					"The filesystem has not been properly configured! "
+							+ "The configuration has no in-memory file system context.");
+		}
+
+		if (fileSystemState == null) {
+			fileSystemState = new HashMap<String, Map<URI, Map<String, Node>>>();
+		}
+
+		// Retrieve the file system context for the request...
+		Map<URI, Map<String, Node>> fileSystemContext = fileSystemState
+				.get(context);
+		if (fileSystemContext == null) {
+			fileSystemContext = new HashMap<URI, Map<String, Node>>();
+			fileSystemState.put(context, fileSystemContext);
+		}
+
+		Map<String, Node> pathMap = fileSystemContext.get(fsName);
 		if (pathMap == null) {
 			pathMap = new HashMap<String, Node>();
 			pathMap.put(ROOT_PATH.toUri().getPath(), new DirectoryNode(
 					ROOT_PATH, new FsPermission(DEFAULT_PERMISSION)));
-			fileSystemState.put(fsName, pathMap);
+			fileSystemContext.put(fsName, pathMap);
 		}
 		return pathMap;
 	}
 
-	private static Node getPathMapNode(URI fsName, Path path) {
-		return getPathMap(fsName).get(path.toUri().getPath());
+	private static Node getPathMapNode(Configuration conf, URI fsName, Path path) {
+		return getPathMap(conf, fsName).get(path.toUri().getPath());
 	}
 
-	private static void setPathMapNode(URI fsName, Path path, Node node) {
-		getPathMap(fsName).put(path.toUri().getPath(), node);
+	private static void setPathMapNode(Configuration conf, URI fsName,
+			Path path, Node node) {
+		getPathMap(conf, fsName).put(path.toUri().getPath(), node);
 	}
 
-	private static boolean containsNode(URI fsName, Path path) {
-		return getPathMap(fsName).containsKey(path.toUri().getPath());
+	private static boolean containsNode(Configuration conf, URI fsName,
+			Path path) {
+		return getPathMap(conf, fsName).containsKey(path.toUri().getPath());
 	}
 
-	private static void removeNode(URI fsName, Path path) {
-		getPathMap(fsName).remove(path.toUri().getPath());
+	private static void removeNode(Configuration conf, URI fsName, Path path) {
+		getPathMap(conf, fsName).remove(path.toUri().getPath());
 	}
 
-	/**
-	 * Clears the entire file system state. This method affects ALL instance of
-	 * the file system.
-	 */
-	public static synchronized void resetFileSystemState() {
-		fileSystemState = null;
+	public static synchronized void resetFileSystemState(Configuration conf) {
+		Validate.notNull(conf, "conf == null not allowed!");
+		String context = conf.get(CONTEXT_KEY);
+		if (context == null) {
+			throw new IllegalStateException(
+					"The configuration has no in-memory file system context.");
+		}
+		if (fileSystemState != null) {
+			fileSystemState.remove(context);
+		}
 	}
 
 	/**
@@ -157,16 +193,53 @@ public class InMemoryFileSystem extends FileSystem {
 	 * default so that subsequent calls to methods such as
 	 * {@link FileSystem#get(Configuration)} will return an instance of this
 	 * file system.
+	 * <p>
+	 * This method disables caching of the default and local file system
+	 * instances. This is required due to the use of file system contexts. Since
+	 * the super class in not aware of our context concept, it will return
+	 * inappropriate cached instances.
 	 * 
 	 * @param conf
 	 *            The configuration to be modified to use this file system as
 	 *            the default.
 	 */
-	public static void configure(Configuration conf) {
+	public static synchronized void configure(final Configuration conf) {
 		Validate.notNull(conf, "conf == null not allowed!");
 
-		conf.set(FS_DEFAULT_NAME_KEY, NAME.toString());
-		conf.set(CONFIG_IMPL_CLASS_KEY, InMemoryFileSystem.class.getName());
+		String context = conf.get(CONTEXT_KEY);
+
+		// if the configuration has not already been initialized...
+		if (context == null) {
+			// Set the default file system name to be HDFS...
+			conf.set(FS_DEFAULT_NAME_KEY, NAME.toString());
+
+			// Set the HDFS file system implementation to this file system...
+			conf.set(CONFIG_IMPL_CLASS_KEY, InMemoryFileSystem.class.getName());
+
+			// Don't allow the super class, FileSystem, to cache the default
+			// file
+			// system instances...
+			disableFileSystemCaching(conf, SCHEME);
+
+			// Set the local file system implementation to the in memory
+			// version...
+			conf.set(LocalInMemoryFileSystem.CONFIG_IMPL_CLASS_KEY,
+					LocalInMemoryFileSystem.class.getName());
+
+			// Don't allow the super class, FileSystem, to cache the local file
+			// system instances...
+			disableFileSystemCaching(conf, LocalInMemoryFileSystem.SCHEME);
+
+			// Set the context for the file system(s)...
+			conf.set(CONTEXT_KEY, Integer.toString(context_number));
+
+			context_number++;
+		}
+	}
+
+	private static void disableFileSystemCaching(Configuration conf,
+			String scheme) {
+		conf.set(String.format("fs.%s.impl.disable.cache", scheme), "true");
 	}
 
 	/**
@@ -176,8 +249,8 @@ public class InMemoryFileSystem extends FileSystem {
 	 * 
 	 * @param conf
 	 *            The configuration to be modified and used by the file system.
-	 * @return An instance of this file system initialized with the specified
-	 *         configuration.
+	 * @return An instance of the default file system initialized with the
+	 *         specified configuration.
 	 */
 	public static InMemoryFileSystem get(Configuration conf) {
 		configure(conf);
@@ -194,9 +267,11 @@ public class InMemoryFileSystem extends FileSystem {
 	}
 
 	/**
-	 * A simple helper method for testing which creates a file in the default
-	 * file system.
+	 * A simple helper method for testing, which creates a file consisting of a
+	 * supplied content string.
 	 * 
+	 * @param fs
+	 *            The file system on which the file is to be created.
 	 * @param path
 	 *            The path of the file to be created. Must not be {@code null}.
 	 * @param contents
@@ -204,10 +279,10 @@ public class InMemoryFileSystem extends FileSystem {
 	 *            {@code null}.
 	 * @throws IOException
 	 */
-	public static void createFile(Path path, String contents)
+	public static void createFile(FileSystem fs, Path path, String contents)
 			throws IOException {
+		Validate.notNull(fs, "fs == null not allowed!");
 		Validate.notNull(contents, "contents == null not allowed!");
-		InMemoryFileSystem fs = InMemoryFileSystem.get(new Configuration());
 		FSDataOutputStream out = fs.create(path);
 		try {
 			out.writeBytes(contents);
@@ -272,7 +347,7 @@ public class InMemoryFileSystem extends FileSystem {
 	 */
 	private Node getNode(Path path, boolean mustExist) throws IOException {
 		Validate.notNull(path, "path == null not allowed!");
-		Node node = getPathMapNode(name, path);
+		Node node = getPathMapNode(getConf(), name, path);
 		if (mustExist && (node == null)) {
 			throw new IOException("'" + path + "' not found!");
 		}
@@ -389,9 +464,10 @@ public class InMemoryFileSystem extends FileSystem {
 
 		FileNode fnode = new FileNode(path, permission);
 		fnode.setOwner(user);
-		setPathMapNode(name, path, fnode);
+		setPathMapNode(getConf(), name, path, fnode);
 
-		DirectoryNode dnode = (DirectoryNode) getPathMapNode(name, parentPath);
+		DirectoryNode dnode = (DirectoryNode) getPathMapNode(getConf(), name,
+				parentPath);
 		dnode.addFile(path);
 
 		Statistics stats = new Statistics(workingDirectory.toUri().getScheme());
@@ -449,8 +525,8 @@ public class InMemoryFileSystem extends FileSystem {
 		mkdirs(pathToDst);
 
 		snode.setPath(dst);
-		removeNode(name, src);
-		setPathMapNode(name, dst, snode);
+		removeNode(getConf(), name, src);
+		setPathMapNode(getConf(), name, dst, snode);
 
 		return true;
 	}
@@ -505,7 +581,7 @@ public class InMemoryFileSystem extends FileSystem {
 								"Delete failed, resource is in use: "
 										+ childFile);
 					}
-					removeNode(name, childFile);
+					removeNode(getConf(), name, childFile);
 				}
 			} else {
 				if (((DirectoryNode) node).getSubDirectories().size() > 0) {
@@ -516,7 +592,7 @@ public class InMemoryFileSystem extends FileSystem {
 		} else if (((FileNode) node).isOpen()) {
 			throw new IOException("Delete failed, resource is in use: " + path);
 		}
-		removeNode(name, path);
+		removeNode(getConf(), name, path);
 		return true;
 	}
 
@@ -643,7 +719,7 @@ public class InMemoryFileSystem extends FileSystem {
 	public boolean mkdirs(Path path, FsPermission permission)
 			throws IOException {
 		path = makeAbsolute(path);
-		if (containsNode(name, path)) {
+		if (containsNode(getConf(), name, path)) {
 			return true;
 		}
 		checkParentDirWritePermission(path);
@@ -651,21 +727,21 @@ public class InMemoryFileSystem extends FileSystem {
 		DirectoryNode dnode = new DirectoryNode(path, permission);
 		dnode.setOwner(user);
 
-		while (parentPath != null && !containsNode(name, parentPath)) {
+		while (parentPath != null && !containsNode(getConf(), name, parentPath)) {
 			mkdirs(parentPath, permission);
-			DirectoryNode pNode = (DirectoryNode) getPathMapNode(name,
-					parentPath);
+			DirectoryNode pNode = (DirectoryNode) getPathMapNode(getConf(),
+					name, parentPath);
 			pNode.addSubDirectory(path);
 		}
 
-		setPathMapNode(name, path, dnode);
+		setPathMapNode(getConf(), name, path, dnode);
 		return true;
 	}
 
 	@Override
 	public FileStatus getFileStatus(Path path) throws IOException {
 		path = makeAbsolute(path);
-		Node node = getPathMapNode(name, path);
+		Node node = getPathMapNode(getConf(), name, path);
 		if (node == null) {
 			throw new FileNotFoundException("'" + path + "' not found!");
 		}

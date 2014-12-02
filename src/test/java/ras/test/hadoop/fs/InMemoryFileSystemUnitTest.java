@@ -51,17 +51,19 @@ public class InMemoryFileSystemUnitTest {
 	Path path = new Path("/message.txt");
 	final String message = "Hello World!";
 
+	private final Configuration configuration = new Configuration();
+	
 	InMemoryFileSystem inMemoryFileSystem;
 	FsPermission allReadOnly = new FsPermission((short) 0444);
 
 	@Before
 	public void setUp() {
-		inMemoryFileSystem = InMemoryFileSystem.get(new Configuration());
+		inMemoryFileSystem = InMemoryFileSystem.get(configuration);
 	}
 
 	@After
 	public void tearDown() {
-		InMemoryFileSystem.resetFileSystemState();
+		InMemoryFileSystem.resetFileSystemState(configuration);
 	}
 
 	//
@@ -170,8 +172,8 @@ public class InMemoryFileSystemUnitTest {
 	public void testCreateOpenLoopTwoFileSystemInstances() throws IOException {
 		writeMessage(path);
 		// Change the file system instance...
-		inMemoryFileSystem = InMemoryFileSystem.get(new Configuration());
-		assertThat("Wrong message", readMessage(path), is(equalTo(message)));
+		inMemoryFileSystem = InMemoryFileSystem.get(inMemoryFileSystem.getConf());
+		assertThat("Wrong message", readMessage(inMemoryFileSystem, path), is(equalTo(message)));
 	}
 
 	@Test
@@ -296,15 +298,21 @@ public class InMemoryFileSystemUnitTest {
 	}
 
 	@Test
+	public void testStaticCreateFileNullFileSystem() throws IOException{
+		expectIllegalArgumentException("fs == null not allowed!");
+		InMemoryFileSystem.createFile(null, path, "Hello World!");
+	}
+
+	@Test
 	public void testStaticCreateFileNullPath() throws IOException{
 		expectIllegalArgumentException("path == null not allowed!");
-		InMemoryFileSystem.createFile(null, "Hello World!");
+		InMemoryFileSystem.createFile(inMemoryFileSystem, null, "Hello World!");
 	}
 	
 	@Test
 	public void testStaticCreateFileNullContent() throws IOException{
 		expectIllegalArgumentException("contents == null not allowed!");
-		InMemoryFileSystem.createFile(path, null);
+		InMemoryFileSystem.createFile(inMemoryFileSystem, path, null);
 	}
 	
 	//
@@ -422,7 +430,7 @@ public class InMemoryFileSystemUnitTest {
 	@Test
 	public void testDeleteFile() throws IOException {
 		Path path = new Path("data.txt");
-		InMemoryFileSystem.createFile(path, "Hello World");
+		InMemoryFileSystem.createFile(inMemoryFileSystem, path, "Hello World");
 		assertTrue("Test setup failed!", inMemoryFileSystem.exists(path));
 		inMemoryFileSystem.delete(path, false);
 		assertFalse("Delete failed!", inMemoryFileSystem.exists(path));
@@ -956,6 +964,7 @@ public class InMemoryFileSystemUnitTest {
 	public void testFileSystemCopyEmptyDirectory() throws IOException {
 		InMemoryFileSystem srcFs = inMemoryFileSystem;
 		InMemoryFileSystem dstFs = new InMemoryFileSystem("file");
+		dstFs.setConf(srcFs.getConf());
 		Path srcPath = new Path("emptyDir");
 		srcFs.mkdirs(srcPath);
 
@@ -971,7 +980,7 @@ public class InMemoryFileSystemUnitTest {
 	public void testFileSystemCopyDirectoryWithSubDir() throws IOException {
 		InMemoryFileSystem srcFs = inMemoryFileSystem;
 		InMemoryFileSystem dstFs = new InMemoryFileSystem("file");
-		dstFs.setConf(new Configuration());
+		dstFs.setConf(srcFs.getConf());
 
 		srcFs.mkdirs(new Path("parentDir/subDir/subSubDir"));
 		writeMessage(srcFs, new Path("parentDir/parentMsg.txt"), message);
@@ -988,6 +997,24 @@ public class InMemoryFileSystemUnitTest {
 				is(equalTo(message)));
 	}
 
+	//
+	// FileSystem Context tests
+	//
+	
+	@Test
+	public void testResetFileSystemStateNullConfiguration(){
+		expectIllegalArgumentException("conf == null not allowed!");
+		InMemoryFileSystem.resetFileSystemState(null);
+	}
+	
+	@Test
+	public void testMultipleContext(){
+		Configuration diffConf = new Configuration();
+		InMemoryFileSystem.configure(diffConf);
+		
+	}
+	
+	
 	//
 	// End of tests
 	//
