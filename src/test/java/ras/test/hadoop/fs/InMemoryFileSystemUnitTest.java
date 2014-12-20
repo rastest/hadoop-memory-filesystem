@@ -398,6 +398,19 @@ public class InMemoryFileSystemUnitTest {
 		inMemoryFileSystem.mkdirs(path);
 	}
 
+	@Test
+	public void testMkdirsTwoLevels() throws IOException{
+		Path parentDir = new Path("/src/main/java");
+		inMemoryFileSystem.mkdirs(parentDir);
+		
+		Path childDir = new Path(parentDir, "ras/");
+		inMemoryFileSystem.mkdirs(childDir);
+		
+		FileStatus[] fstats = inMemoryFileSystem.listStatus(parentDir);
+		assertThat("Wrong number of wrong number of childern",fstats.length, is(equalTo(1)));
+		assertThat("Wrong child",fstats[0].getPath(), is(equalTo(childDir)));
+	}
+	
 	//
 	// Delete Tests
 	//

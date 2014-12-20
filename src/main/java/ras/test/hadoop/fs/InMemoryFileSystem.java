@@ -727,10 +727,24 @@ public class InMemoryFileSystem extends FileSystem {
 		DirectoryNode dnode = new DirectoryNode(path, permission);
 		dnode.setOwner(user);
 
+		// Recursively climb backwards until we reach the root or we find an
+		// existing parent
+
+		// while we have not reached the root && we have not found a
+		// parent node...
 		while (parentPath != null && !containsNode(getConf(), name, parentPath)) {
 			mkdirs(parentPath, permission);
 			DirectoryNode pNode = (DirectoryNode) getPathMapNode(getConf(),
 					name, parentPath);
+			pNode.addSubDirectory(path);
+		}
+
+		// if there is a parent...
+		if (parentPath != null) {
+			// get the parent node...
+			DirectoryNode pNode = (DirectoryNode) getPathMapNode(getConf(),
+					name, parentPath);
+			// create the link from the parent to the child...
 			pNode.addSubDirectory(path);
 		}
 
