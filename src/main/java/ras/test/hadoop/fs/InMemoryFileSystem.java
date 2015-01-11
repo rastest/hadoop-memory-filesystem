@@ -724,8 +724,6 @@ public class InMemoryFileSystem extends FileSystem {
 		}
 		checkParentDirWritePermission(path);
 		Path parentPath = path.getParent();
-		DirectoryNode dnode = new DirectoryNode(path, permission);
-		dnode.setOwner(user);
 
 		// Recursively climb backwards until we reach the root or we find an
 		// existing parent
@@ -748,6 +746,8 @@ public class InMemoryFileSystem extends FileSystem {
 			pNode.addSubDirectory(path);
 		}
 
+		DirectoryNode dnode = new DirectoryNode(path, permission);
+		dnode.setOwner(user);
 		setPathMapNode(getConf(), name, path, dnode);
 		return true;
 	}
@@ -785,6 +785,7 @@ public class InMemoryFileSystem extends FileSystem {
 	@Override
 	public void setOwner(Path path, String username, String groupname)
 			throws IOException {
+		//TODO: Add argument checks for username and groupname
 		path = makeAbsolute(path);
 		Node node = getNode(path, true);
 		node.setOwner(username);
